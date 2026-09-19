@@ -3,4 +3,4 @@ build:
 
 test:
 	go build ./cmd/exporter/main.go
-	./main --out=.
+	./main --out=./tmp/
