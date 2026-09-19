@@ -1,7 +1,6 @@
 package client
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,16 +21,12 @@ const (
 	profileUrl  = baseUrl + "/api/s1/profile/"
 	enterUrl    = baseUrl + "/login/enter/"
 	downloadUrl = baseUrl + "/export/download2011/"
+	// без Referer на страницу приложения экспорт отвечает 302 на /a/
+	appUrl = baseUrl + "/a/"
 )
 
 type HttpClient struct {
 	http *http.Client
-}
-
-type credentialsReq struct {
-	Noredirect bool   `json:"noredirect"`
-	Login      string `json:"login"`
-	Password   string `json:"password"`
 }
 
 func NewHttpClient() *HttpClient {
@@ -49,11 +44,10 @@ func NewHttpClient() *HttpClient {
 }
 
 func (c *HttpClient) ExportData(cfg *config.Config) ([]byte, error) {
-	if err := c.resolveSessionCookie(); err != nil {
+	if err := c.login(cfg.Login, cfg.Password); err != nil {
 		return nil, err
 	}
-
-	if err := c.login(cfg.Login, cfg.Password); err != nil {
+	if err := c.verifyAuth(); err != nil {
 		return nil, err
 	}
 
@@ -65,36 +59,18 @@ func (c *HttpClient) ExportData(cfg *config.Config) ([]byte, error) {
 	return data, nil
 }
 
-func (c *HttpClient) resolveSessionCookie() error {
-	req, err := http.NewRequest(http.MethodGet, profileUrl, nil)
-	if err != nil {
-		return fmt.Errorf("resolve session: build request for %s: %w", profileUrl, err)
-	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("resolve session: request to %s failed: %w", profileUrl, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("resolve session: unexpected response status from %s: %s", profileUrl, resp.Status)
-	}
-
-	return nil
-}
-
 func (c *HttpClient) login(login, password string) error {
-	creds := credentialsReq{Noredirect: true, Login: login, Password: password}
-	body, err := json.Marshal(creds)
-	if err != nil {
-		return fmt.Errorf("login: marshal credentials: %w", err)
-	}
+	form := url.Values{}
+	form.Set("noredirect", "true")
+	form.Set("login", login)
+	form.Set("password", password)
 
-	req, err := http.NewRequest(http.MethodPost, enterUrl, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, enterUrl, strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("login: build request for %s: %w", enterUrl, err)
 	}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -109,6 +85,27 @@ func (c *HttpClient) login(login, password string) error {
 	return nil
 }
 
+type profileResp struct {
+	User json.RawMessage `json:"user"`
+}
+
+func (c *HttpClient) verifyAuth() error {
+	resp, err := c.http.Get(profileUrl) // jar уже несёт авторизованный PHPSESSID
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var p profileResp
+	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
+		return fmt.Errorf("verify auth: not authenticated (invalid response)")
+	}
+	if len(p.User) == 0 || string(p.User) == "null" {
+		return fmt.Errorf("verify auth: not authenticated")
+	}
+	return nil
+}
+
 func (c *HttpClient) fetchData() ([]byte, error) {
 	body := url.Values{}
 	body.Add("month_filter", "0")
@@ -119,6 +116,7 @@ func (c *HttpClient) fetchData() ([]byte, error) {
 		return nil, fmt.Errorf("fetch data: build request for %s: %w", downloadUrl, err)
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", appUrl)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
