@@ -27,5 +27,6 @@ func Save(data []byte, cfg *config.Config) error {
 		return fmt.Errorf("failed to save data to %s: %w", f.Name(), err)
 	}
 
+	fmt.Printf("transction history saved to %s", path)
 	return nil
 }
