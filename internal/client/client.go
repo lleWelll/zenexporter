@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"time"
@@ -27,20 +29,21 @@ type HttpClient struct {
 }
 
 type credentialsReq struct {
-	noredirect bool
-	login      string
-	password   string
-}
-
-type downloadReq struct {
-	MonthFilter   int `json:"month_filter"`
-	AccountFilter int `json:"account_filter"`
+	Noredirect bool   `json:"noredirect"`
+	Login      string `json:"login"`
+	Password   string `json:"password"`
 }
 
 func NewHttpClient() *HttpClient {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		panic(err)
+	}
+
 	return &HttpClient{
 		&http.Client{
 			Timeout: clientTimeout,
+			Jar:     jar,
 		},
 	}
 }
@@ -82,7 +85,7 @@ func (c *HttpClient) resolveSessionCookie() error {
 }
 
 func (c *HttpClient) login(login, password string) error {
-	creds := credentialsReq{noredirect: true, login: login, password: password}
+	creds := credentialsReq{Noredirect: true, Login: login, Password: password}
 	body, err := json.Marshal(creds)
 	if err != nil {
 		return fmt.Errorf("login: marshal credentials: %w", err)
@@ -125,6 +128,10 @@ func (c *HttpClient) fetchData() ([]byte, error) {
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("fetch data: unexpected response status from %s: %s", downloadUrl, resp.Status)
+	}
+	mt, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if err != nil || mt != "text/csv" {
+		return nil, fmt.Errorf("fetch data: invalid response Content-Type: %s", resp.Header.Get("Content-Type"))
 	}
 
 	data, err := io.ReadAll(resp.Body)
