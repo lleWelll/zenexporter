@@ -8,4 +8,4 @@ test:
 
 dw:
 	make build
-	cp ./main ~/bin/zenexporter
+	cp ./main ~/bin/zenexport
