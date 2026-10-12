@@ -1,6 +1,7 @@
 # zenexporter
 
-A small CLI that signs in to [ZenMoney](https://zenmoney.ru), downloads your transaction history, and saves it as a CSV file.
+A small CLI that signs in to [ZenMoney](https://zenmoney.ru), downloads your transaction history, and saves it as a CSV file
+If you're looking for a web-based service to analyze your transaction history, check out my related project: [zenalitics](https://github.com/lleWelll/zenalitics)
 
 ## Download
 
